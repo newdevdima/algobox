@@ -1,0 +1,10 @@
+{
+  "name": "algocahier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Éditeur d'algorithmes en ligne avec la syntaxe d'AlgoBox",
+  "scripts": {
+    "dev": "npx --yes serve public -l 3000",
+    "build": "echo \"Site statique : rien à construire\""
+  }
+}

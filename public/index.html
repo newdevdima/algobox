@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AlgoCahier</title>
+<meta name="description" content="Écrire et exécuter des algorithmes avec la syntaxe d'AlgoBox, directement dans le navigateur.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Algo<span>Cahier</span></h1>
+      <p>Écrire et exécuter des algorithmes avec la syntaxe d'AlgoBox, directement dans le navigateur. Fonctionne sur Chromebook, tablette et téléphone.</p>
+    </div>
+    <div class="files">
+      <label for="exemples">Exemples</label>
+      <select id="exemples"></select>
+      <button class="btn" id="btn-ouvrir" type="button">Ouvrir un fichier .alg</button>
+      <input type="file" id="fichier" accept=".alg,.txt,text/plain,application/xml" hidden>
+      <button class="btn ghost" id="btn-restore" type="button" hidden>Retrouver mon code</button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="sheet-col" aria-label="Éditeur">
+      <div class="insert" role="toolbar" aria-label="Insérer une instruction">
+        <span class="insert-label">Insérer</span>
+        <button class="chip c-struct" data-snip="var" type="button">Variable</button>
+        <button class="chip c-instr" data-snip="lire" type="button">LIRE</button>
+        <button class="chip c-instr" data-snip="aff" type="button">AFFICHER</button>
+        <button class="chip c-instr" data-snip="prend" type="button">PREND_LA_VALEUR</button>
+        <button class="chip c-test" data-snip="si" type="button">SI</button>
+        <button class="chip c-test" data-snip="sisinon" type="button">SI … SINON</button>
+        <button class="chip c-loop" data-snip="pour" type="button">POUR</button>
+        <button class="chip c-loop" data-snip="tq" type="button">TANT_QUE</button>
+      </div>
+      <div class="editor">
+        <div class="gutter" aria-hidden="true"><div class="gutter-inner" id="gutter"></div></div>
+        <div class="code" id="codebox">
+          <div class="band" id="band" hidden></div>
+          <pre id="hl" aria-hidden="true"></pre>
+          <textarea id="src" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" aria-label="Code de l'algorithme"></textarea>
+        </div>
+      </div>
+      <div class="erreur" id="erreur" role="alert" hidden></div>
+      <div class="actions">
+        <button class="btn primary" id="btn-run" type="button">Exécuter</button>
+        <button class="btn" id="btn-step" type="button">Pas à pas</button>
+        <button class="btn primary" id="btn-next" type="button" hidden>Ligne suivante</button>
+        <button class="btn" id="btn-cont" type="button" hidden>Aller jusqu'au bout</button>
+        <button class="btn danger" id="btn-stop" type="button" hidden>Arrêter</button>
+        <span class="hint" id="hint-kbd"><kbd>Ctrl</kbd> + <kbd>Entrée</kbd> pour exécuter</span>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="btn-copy" type="button">Copier le code</button>
+        <button class="btn ghost" id="btn-new" type="button">Nouveau</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" aria-label="Sortie">
+        <div class="panel-head"><h2>Sortie</h2><span class="etat" id="etat">Prêt</span></div>
+        <div class="sortie" id="sortie" aria-live="polite"></div>
+      </section>
+      <section class="panel" aria-label="Variables">
+        <div class="panel-head"><h2>Variables</h2></div>
+        <div class="vars-wrap">
+          <table class="vars"><thead><tr><th>Nom</th><th>Type</th><th>Valeur</th></tr></thead><tbody id="vars"></tbody></table>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <section class="memo" aria-label="Aide-mémoire">
+    <h2>Aide-mémoire</h2>
+    <p>Les instructions s'écrivent comme dans AlgoBox. Les boutons « Insérer » ajoutent chaque structure toute prête là où se trouve le curseur.</p>
+    <div class="memo-grid">
+      <div class="memo-row"><div class="what">Déclarer une variable</div><pre class="mini">x EST_DU_TYPE NOMBRE
+nom EST_DU_TYPE CHAINE
+L EST_DU_TYPE LISTE</pre><div class="note">Les déclarations se placent entre VARIABLES et DEBUT_ALGORITHME. CHAINE sert pour du texte.</div></div>
+      <div class="memo-row"><div class="what">Demander une valeur</div><pre class="mini">LIRE x</pre><div class="note">Une case de saisie apparaît dans la sortie. Pour un décimal, le point et la virgule sont acceptés.</div></div>
+      <div class="memo-row"><div class="what">Donner une valeur</div><pre class="mini">x PREND_LA_VALEUR 2*x + 1</pre><div class="note">Le calcul de droite est fait d'abord, puis le résultat est rangé dans x.</div></div>
+      <div class="memo-row"><div class="what">Afficher</div><pre class="mini">AFFICHER "x vaut ", x</pre><div class="note">Chaque AFFICHER passe à la ligne. Les virgules mettent plusieurs éléments sur la même ligne.</div></div>
+      <div class="memo-row"><div class="what">Condition</div><pre class="mini">SI (x &gt; 0) ALORS
+  DEBUT_SI
+  AFFICHER "positif"
+  FIN_SI
+SINON
+  DEBUT_SINON
+  AFFICHER "négatif ou nul"
+  FIN_SINON</pre><div class="note">Le bloc SINON est facultatif.</div></div>
+      <div class="memo-row"><div class="what">Boucle POUR</div><pre class="mini">POUR i ALLANT_DE 1 A 10
+  DEBUT_POUR
+  AFFICHER i
+  FIN_POUR</pre><div class="note">Le compteur i doit être déclaré comme NOMBRE. Il augmente de 1 à chaque tour.</div></div>
+      <div class="memo-row"><div class="what">Boucle TANT_QUE</div><pre class="mini">TANT_QUE (x &lt; 100) FAIRE
+  DEBUT_TANT_QUE
+  x PREND_LA_VALEUR x * 2
+  FIN_TANT_QUE</pre><div class="note">La boucle s'arrête dès que la condition devient fausse. Au-delà d'un million de tours, l'algorithme est arrêté.</div></div>
+      <div class="memo-row"><div class="what">Comparer, combiner</div><pre class="mini">x == 3    x != 3    x &lt;= 3
+(x &gt; 0) ET (x &lt; 10)
+(n == 1) OU (n == 2)</pre><div class="note">== veut dire « égal », != veut dire « différent ». On peut aussi utiliser NON.</div></div>
+      <div class="memo-row"><div class="what">Calculer</div><pre class="mini">sqrt(x)   pow(x,3)   abs(x)
+floor(x)  round(x)   n % 2
+random()  ALGOBOX_ALEA_ENT(1,6)</pre><div class="note">% donne le reste de la division. ALGOBOX_ALEA_ENT(a,b) donne un entier au hasard entre a et b. Math.PI vaut π.</div></div>
+      <div class="memo-row"><div class="what">Listes</div><pre class="mini">L[1] PREND_LA_VALEUR 5
+AFFICHER L[1]</pre><div class="note">Les éléments sont repérés par leur rang entre crochets, en général à partir de 1.</div></div>
+      <div class="memo-row"><div class="what">Commentaires</div><pre class="mini">// ce texte est ignoré</pre><div class="note">Pratique pour expliquer son algorithme.</div></div>
+    </div>
+  </section>
+
+  <footer>
+    Le code est gardé automatiquement dans ce navigateur, sur cet appareil uniquement. Pour rendre un travail, utilise « Copier le code » et colle-le dans un message. Les fichiers .alg créés avec AlgoBox s'ouvrent avec le bouton « Ouvrir un fichier .alg ».
+  </footer>
+</div>
+<script src="app.js" defer></script>
+</body>
+</html>
