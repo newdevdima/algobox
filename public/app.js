@@ -118,10 +118,11 @@ const BLANK = "VARIABLES\n  \nDEBUT_ALGORITHME\n  \nFIN_ALGORITHME";
 
 /* ---------- Highlighting ---------- */
 const KW = {
-  struct:new Set(["VARIABLES","DEBUT_ALGORITHME","FIN_ALGORITHME","EST_DU_TYPE","NOMBRE","CHAINE","LISTE"]),
+  struct:new Set(["VARIABLES","DEBUT_ALGORITHME","FIN_ALGORITHME","EST_DU_TYPE","NOMBRE","CHAINE","LISTE",
+    "FONCTIONS_UTILISEES","FONCTION","VARIABLES_FONCTION","DEBUT_FONCTION","FIN_FONCTION"]),
   test:new Set(["SI","ALORS","SINON","DEBUT_SI","FIN_SI","DEBUT_SINON","FIN_SINON"]),
   loop:new Set(["POUR","ALLANT_DE","DEBUT_POUR","FIN_POUR","TANT_QUE","FAIRE","DEBUT_TANT_QUE","FIN_TANT_QUE"]),
-  instr:new Set(["LIRE","AFFICHER","AFFICHERCALCUL","PREND_LA_VALEUR"]),
+  instr:new Set(["LIRE","AFFICHER","AFFICHERCALCUL","PREND_LA_VALEUR","RENVOYER","APPELER_FONCTION","APPELER"]),
   logic:new Set(["ET","OU","NON","VRAI","FAUX"])
 };
 const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -172,7 +173,7 @@ class StopErr extends Error {}
 const ID = "[A-Za-zÀ-ÖØ-öø-ÿ_][A-Za-z0-9À-ÖØ-öø-ÿ_]*";
 const IDRE = new RegExp("^"+ID+"$");
 const TYPES = {NOMBRE:1, CHAINE:1, LISTE:1};
-const RESERVED = new Set([...KW.struct,...KW.test,...KW.loop,...KW.instr,...KW.logic,"MATH","PI","FONCTIONS_UTILISEES","CONSTRUCTOR","__PROTO__","PROTOTYPE"]);
+const RESERVED = new Set([...KW.struct,...KW.test,...KW.loop,...KW.instr,...KW.logic,"MATH","PI","CONSTRUCTOR","__PROTO__","PROTOTYPE"]);
 const FUNCS = {sqrt:"Math.sqrt",pow:"Math.pow",abs:"Math.abs",floor:"Math.floor",ceil:"Math.ceil",round:"Math.round",random:"Math.random",
   sin:"Math.sin",cos:"Math.cos",tan:"Math.tan",exp:"Math.exp",log:"Math.log",max:"Math.max",min:"Math.min",trunc:"Math.trunc",
   ALGOBOX_ALEA_ENT:"__F.alea",ALGOBOX_SOMME:"__F.somme",ALGOBOX_MOYENNE:"__F.moyenne",ALGOBOX_MAXIMUM:"__F.maxi",ALGOBOX_MINIMUM:"__F.mini"};
@@ -184,6 +185,12 @@ const OPMAP = {"=":"==","==":"==","!=":"!=","<>":"!=","<=":"<=",">=":">=","<":"<
 const TOKX = /"[^"]*"|'[^']*'|[A-Za-zÀ-ÖØ-öø-ÿ_][A-Za-z0-9À-ÖØ-öø-ÿ_]*|\d+(?:\.\d+)?|\.\d+|==|!=|<=|>=|<>|&&|\|\||\*\*|\s+|[\s\S]/g;
 const FIN = {SI:"FIN_SI", SINON:"FIN_SINON", POUR:"FIN_POUR", TANT_QUE:"FIN_TANT_QUE"};
 const q = s => JSON.stringify(s);
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+const FN_HEAD = new RegExp("^FONCTION\\s+("+ID+")\\s*\\(([^)]*)\\)$", "i");
+const CALL = new RegExp("^(?:APPELER(?:_FONCTION)?\\s+)?("+ID+")\\s*\\((.*)\\)$", "i");
+const DECL = new RegExp("^("+ID+")\\s+EST_DU_TYPE\\s+([A-Za-z]+)$", "i");
+const nParams = k => k + (k > 1 ? " paramètres" : " paramètre");
+let UF = Object.create(null);   // functions written by the student, while compiling: name -> number of parameters
 
 function nearVar(t, vars){ return Object.keys(vars).find(v => v.toLowerCase() === t.toLowerCase()); }
 
@@ -191,7 +198,7 @@ function tx(expr, n, vars){
   const s0 = expr.trim();
   if (!s0) throw new CErr(n, "Il manque une valeur ou un calcul (une virgule en trop ?).");
   const T = (s0.match(TOKX) || []).filter(t => !/^\s+$/.test(t));
-  const o = []; let dot = null;
+  const o = [], calls = []; let dot = null, depth = 0;
   for (let j=0;j<T.length;j++){
     const t = T[j], nx = T[j+1], pv = T[j-1];
     if (dot) {
@@ -206,11 +213,27 @@ function tx(expr, n, vars){
       if (WORDOPS[u] && !vars[t]) { o.push(WORDOPS[u]); continue; }
       if (t === "Math") { if (nx !== ".") throw new CErr(n, "Math doit être suivi d'un point, par exemple Math.PI."); o.push("Math"); continue; }
       if (u === "PI" && !vars[t]) { o.push("Math.PI"); continue; }
+      if (nx === "(" && UF[t] !== undefined) {
+        // count the arguments up to the matching parenthesis
+        let d = 0, k = j + 1, args = T[j+2] === ")" ? 0 : 1;
+        for (; k < T.length; k++) {
+          if (T[k] === "(" || T[k] === "[") d++;
+          else if (T[k] === ")" || T[k] === "]") { if (--d === 0) break; }
+          else if (T[k] === "," && d === 1) args++;
+        }
+        if (k >= T.length) throw new CErr(n, "Il manque une parenthèse fermante après "+t+"(….");
+        if (args !== UF[t]) throw new CErr(n, "La fonction "+t+" attend "+nParams(UF[t])+", mais en reçoit "+args+".");
+        o.push("(await __E(__U."+t+", "+q(t)); j++; depth++; calls.push(depth);
+        if (T[j+1] !== ")") o.push(",");
+        continue;
+      }
       if (nx === "(") {
         const f = FUNCS[t] || (MATHP.has(t.toLowerCase()) ? FUNCS[t.toLowerCase()] : null);
         if (f) { o.push(f); continue; }
         if (vars[t]) throw new CErr(n, t+" est une variable, pas une fonction. Ajoute un opérateur, par exemple "+t+"*(…).");
-        throw new CErr(n, "La fonction "+t+"( ) n'existe pas. Regarde la liste des fonctions dans l'aide-mémoire.");
+        const nearF = Object.keys(UF).find(u => u.toLowerCase() === t.toLowerCase());
+        if (nearF) throw new CErr(n, "La fonction "+t+"( ) n'existe pas. Voulais-tu écrire "+nearF+"( ) ? Les majuscules comptent.");
+        throw new CErr(n, "La fonction "+t+"( ) n'existe pas. Écris-la dans FONCTIONS_UTILISEES, ou regarde la liste des fonctions dans l'aide-mémoire.");
       }
       if (vars[t]) {
         if (nx === "[" && vars[t] !== "LISTE") throw new CErr(n, t+" n'est pas une LISTE : on ne peut pas écrire "+t+"[…].");
@@ -222,13 +245,15 @@ function tx(expr, n, vars){
     }
     if (/^\.?\d/.test(t)) { o.push(t); continue; }
     if (t === ".") { dot = pv === "Math" ? "math" : "prop"; o.push("."); continue; }
+    if (t === "(") { depth++; o.push("("); continue; }
+    if (t === ")") { o.push(calls.length && calls[calls.length-1] === depth ? (calls.pop(), "))") : ")"); depth--; continue; }
     if (OPMAP[t] !== undefined) { o.push(OPMAP[t]); continue; }
     if (t === '"' || t === "'") throw new CErr(n, "Un guillemet n'est pas fermé.");
     throw new CErr(n, "Caractère inattendu « "+t+" » dans « "+s0+" ».");
   }
   if (dot) throw new CErr(n, "Le calcul « "+s0+" » se termine par un point.");
   const js = o.join(" ");
-  try { new Function("V","__F",'"use strict";return ('+js+');'); }
+  try { new AsyncFunction("V","__F","__E","__U",'"use strict";return ('+js+');'); }
   catch(e) { throw new CErr(n, "Le calcul « "+s0+" » est mal écrit : vérifie les parenthèses et les opérateurs."+(s0.includes("^")?" Pour une puissance, écris par exemple pow(x,2).":"")); }
   return "("+js+")";
 }
@@ -262,37 +287,100 @@ function target(str, n, vars, verb){
   return {name, ty, idx: null};
 }
 
+// Adds a declaration "x EST_DU_TYPE NOMBRE" to types/order. Returns false when the line is not a declaration.
+function declare(s, n, types, order){
+  const m = s.match(DECL);
+  if (!m) return false;
+  const name = m[1], ty = m[2].toUpperCase();
+  if (!TYPES[ty]) throw new CErr(n, "Type inconnu « "+m[2]+" ». Les types possibles sont NOMBRE, CHAINE et LISTE.");
+  if (RESERVED.has(name.toUpperCase()) || name.startsWith("__")) throw new CErr(n, "« "+name+" » est un mot réservé : choisis un autre nom de variable.");
+  if (UF[name] !== undefined) throw new CErr(n, "« "+name+" » est déjà le nom d'une fonction : choisis un autre nom de variable.");
+  if (types[name] === "PARAM") throw new CErr(n, "« "+name+" » est déjà un paramètre de la fonction : pas besoin de le déclarer.");
+  if (types[name]) throw new CErr(n, "La variable "+name+" est déjà déclarée.");
+  types[name] = ty; order.push(name);
+  return true;
+}
+
 function compile(code){
   const lines = code.split("\n");
-  const vars = Object.create(null), order = [], js = [], stack = [];
-  let phase = 0, last = "", loopId = 0, lastNonEmpty = 1;
+  const vars = Object.create(null), order = [], defs = [], ctx = {loop:0};
+  let phase = 0, lastNonEmpty = 1, debut = -1, fin = -1, cur = null;
   const err = (n,m) => { throw new CErr(n,m); };
+  UF = Object.create(null);
+  /* Structure: functions, declarations, then the main algorithm between DEBUT_ALGORITHME and FIN_ALGORITHME */
   for (let i=0;i<lines.length;i++){
     const n = i+1, s = lines[i].trim();
     if (!s || s.startsWith("//")) continue;
     lastNonEmpty = n;
     const U = s.toUpperCase();
     if (phase === 3) err(n, "Cette ligne est après FIN_ALGORITHME : elle ne sera jamais exécutée. Déplace-la avant FIN_ALGORITHME.");
-    if (phase < 2) {
-      if (U === "VARIABLES") { phase = 1; continue; }
-      if (U === "FONCTIONS_UTILISEES") continue;
-      const m = s.match(new RegExp("^("+ID+")\\s+EST_DU_TYPE\\s+([A-Za-z]+)$","i"));
-      if (m) {
-        const name = m[1], ty = m[2].toUpperCase();
-        if (!TYPES[ty]) err(n, "Type inconnu « "+m[2]+" ». Les types possibles sont NOMBRE, CHAINE et LISTE.");
-        if (RESERVED.has(name.toUpperCase()) || name.startsWith("__")) err(n, "« "+name+" » est un mot réservé : choisis un autre nom de variable.");
-        if (vars[name]) err(n, "La variable "+name+" est déjà déclarée.");
-        vars[name] = ty; order.push(name); continue;
+    if (phase === 2) { if (U === "FIN_ALGORITHME") { fin = i; phase = 3; } continue; }
+    if (cur) {                                         // inside FONCTION … FIN_FONCTION
+      if (U === "FIN_FONCTION") {
+        if (cur.from < 0) err(n, "Il manque la ligne DEBUT_FONCTION dans la fonction "+cur.name+" (ligne "+cur.line+").");
+        cur.to = i; cur.end = n; cur = null; continue;
       }
-      if (U === "DEBUT_ALGORITHME") { phase = 2; continue; }
-      if (/EST_DU_TYPE/i.test(s)) err(n, "Déclaration mal écrite. Exemple : x EST_DU_TYPE NOMBRE");
-      err(n, phase === 1 ? "Ici, on ne peut que déclarer des variables (exemple : x EST_DU_TYPE NOMBRE). Les instructions vont après DEBUT_ALGORITHME." : "Un algorithme commence par VARIABLES, puis DEBUT_ALGORITHME.");
+      if (FN_HEAD.test(s) || U === "VARIABLES" || U === "DEBUT_ALGORITHME") err(n, "La fonction "+cur.name+" (ligne "+cur.line+") n'est pas fermée : il manque FIN_FONCTION avant cette ligne.");
+      if (cur.from >= 0) continue;
+      if (U === "VARIABLES_FONCTION") continue;
+      if (U === "DEBUT_FONCTION") { cur.from = i + 1; continue; }
+      if (declare(s, n, cur.types, cur.order)) continue;
+      if (/EST_DU_TYPE/i.test(s)) err(n, "Déclaration mal écrite. Exemple : i EST_DU_TYPE NOMBRE");
+      err(n, "Avant DEBUT_FONCTION, on ne peut que déclarer les variables de la fonction (exemple : i EST_DU_TYPE NOMBRE).");
     }
-    /* body */
-    if (U === "FIN_ALGORITHME") {
-      if (stack.length) { const t = stack[stack.length-1]; err(n, "Le bloc "+t.kind+" ouvert ligne "+t.line+" n'est pas fermé : il manque "+FIN[t.kind]+"."); }
-      phase = 3; js.push("__ln("+n+");"); continue;
+    if (U === "FONCTIONS_UTILISEES") continue;
+    let m;
+    if ((m = s.match(FN_HEAD))) {
+      const name = m[1], params = m[2].trim() ? m[2].split(",").map(p => p.trim()) : [];
+      if (RESERVED.has(name.toUpperCase()) || name.startsWith("__")) err(n, "« "+name+" » est un mot réservé : choisis un autre nom de fonction.");
+      if (FUNCS[name] || MATHP.has(name)) err(n, name+"( ) existe déjà dans AlgoBox : choisis un autre nom de fonction.");
+      if (UF[name] !== undefined) err(n, "La fonction "+name+" est déjà écrite plus haut.");
+      if (vars[name]) err(n, "« "+name+" » est déjà le nom d'une variable : choisis un autre nom de fonction.");
+      cur = {name, params, line:n, from:-1, to:-1, end:0, types:Object.create(null), order:[]};
+      for (const p of params) {
+        if (!IDRE.test(p)) err(n, "« "+p+" » n'est pas un nom de paramètre valable. Exemple : FONCTION puissance(x, n)");
+        if (RESERVED.has(p.toUpperCase()) || p.startsWith("__")) err(n, "« "+p+" » est un mot réservé : choisis un autre nom de paramètre.");
+        if (cur.types[p]) err(n, "Le paramètre "+p+" apparaît deux fois.");
+        cur.types[p] = "PARAM";
+      }
+      UF[name] = params.length; defs.push(cur); continue;
     }
+    if (/^FONCTION\b/i.test(s)) err(n, "Syntaxe attendue : FONCTION nom(x, y)");
+    if (/^(VARIABLES_FONCTION|DEBUT_FONCTION|FIN_FONCTION)$/.test(U) || /^RENVOYER\b/.test(U)) err(n, s.split(/\s/)[0]+" doit se trouver à l'intérieur d'une fonction, après une ligne FONCTION nom(x).");
+    if (U === "VARIABLES") { phase = 1; continue; }
+    if (declare(s, n, vars, order)) continue;
+    if (U === "DEBUT_ALGORITHME") { phase = 2; debut = i; continue; }
+    if (/EST_DU_TYPE/i.test(s)) err(n, "Déclaration mal écrite. Exemple : x EST_DU_TYPE NOMBRE");
+    err(n, phase === 1 ? "Ici, on ne peut que déclarer des variables (exemple : x EST_DU_TYPE NOMBRE). Les instructions vont après DEBUT_ALGORITHME." : "Un algorithme commence par VARIABLES, puis DEBUT_ALGORITHME.");
+  }
+  if (cur) err(cur.line, "La fonction "+cur.name+" n'est pas fermée : il manque FIN_FONCTION.");
+  if (phase < 2) throw new CErr(lastNonEmpty, "Il manque la ligne DEBUT_ALGORITHME.");
+  const main = compileStmts(lines, debut + 1, phase === 3 ? fin : lines.length, vars, null, phase === 3 ? fin + 1 : 0, ctx);
+  if (phase < 3) throw new CErr(lastNonEmpty, "Il manque la ligne FIN_ALGORITHME à la fin.");
+  const js = ["const __U = Object.create(null);"];
+  for (const d of defs) {
+    const fv = Object.assign(Object.create(null), vars, d.types);   // the function sees its own variables, then the main ones (e.g. a LISTE T)
+    const body = compileStmts(lines, d.from, d.to, fv, d, d.end, ctx);
+    js.push("__U."+d.name+" = async (...__a) => { const {V, __set, __setEl, __end} = __frame("+q(d.name)+", "+q(d.params)+", "+q(d.types)+", __a); try {",
+      ...body, "} finally { __end(); } };");
+  }
+  js.push(...main, "__ln("+(fin + 1)+");");
+  const body = '"use strict"; return (async () => {\n' + js.join("\n") + "\n})();";
+  let fn;
+  try { fn = new Function("V","__s","__ln","__set","__setEl","__lire","__aff","__tick","__c","__num","__idx","__F","__frame","__E", body); }
+  catch(e) { throw new CErr(0, "L'algorithme n'a pas pu être préparé ("+e.message+")."); }
+  return {fn, vars, order};
+}
+
+// Instructions from line index "from" to "to"-1 (main algorithm, or body of the function fn). endN: line of FIN_ALGORITHME / FIN_FONCTION, 0 if missing.
+function compileStmts(lines, from, to, vars, fn, endN, ctx){
+  const js = [], stack = [];
+  let last = "";
+  const err = (n,m) => { throw new CErr(n,m); };
+  for (let i=from;i<to;i++){
+    const n = i+1, s = lines[i].trim();
+    if (!s || s.startsWith("//")) continue;
+    const U = s.toUpperCase();
     const top = stack[stack.length-1];
     const debM = U.match(/^DEBUT_(SI|SINON|POUR|TANT_QUE)$/);
     const finM = U.match(/^FIN_(SI|SINON|POUR|TANT_QUE)$/);
@@ -326,8 +414,8 @@ function compile(code){
     if ((m = s.match(new RegExp("^POUR\\s+("+ID+")\\s+ALLANT_DE\\s+(.+?)\\s+A\\s+(.+)$","i")))) {
       const v = m[1];
       if (!vars[v]) err(n, "Le compteur "+v+" doit être déclaré (exemple : "+v+" EST_DU_TYPE NOMBRE).");
-      if (vars[v] !== "NOMBRE") err(n, "Le compteur "+v+" doit être de type NOMBRE.");
-      const a = tx(m[2],n,vars), b = tx(m[3],n,vars), id = loopId++;
+      if (vars[v] !== "NOMBRE" && vars[v] !== "PARAM") err(n, "Le compteur "+v+" doit être de type NOMBRE.");
+      const a = tx(m[2],n,vars), b = tx(m[3],n,vars), id = ctx.loop++;
       js.push("__ln("+n+"); { const __b"+id+" = __num("+b+"); for(__set("+q(v)+", __num("+a+")); V."+v+" <= __b"+id+"; __set("+q(v)+", V."+v+" + 1))");
       stack.push({kind:"POUR", line:n, opened:false, open:"{ await __tick(); await __s("+n+");", close:"}}"}); last = "POUR"; continue;
     }
@@ -335,7 +423,7 @@ function compile(code){
     if ((m = s.match(/^LIRE\b\s*(.*)$/i))) {
       const t = target(m[1], n, vars, "LIRE");
       if (t.idx) js.push("await __s("+n+"); { const __k = __idx("+t.idx+"); __setEl("+q(t.name)+", __k, await __lire("+q(t.name)+", \"NOMBRE\", __k)); }");
-      else js.push("await __s("+n+"); __set("+q(t.name)+", await __lire("+q(t.name)+", "+q(t.ty)+", null));");
+      else js.push("await __s("+n+"); __set("+q(t.name)+", await __lire("+q(t.name)+", "+q(t.ty === "PARAM" ? "NOMBRE" : t.ty)+", null));");
       last = "LIRE"; continue;
     }
     if ((m = s.match(/^AFFICHER(?:CALCUL)?\b\s*(.*)$/i))) {
@@ -351,19 +439,33 @@ function compile(code){
       else js.push("await __s("+n+"); __set("+q(t.name)+", "+val+");");
       last = "PREND"; continue;
     }
+    if ((m = s.match(/^RENVOYER\b\s*(.*)$/i))) {
+      if (!fn) err(n, "RENVOYER ne s'utilise que dans une fonction, entre DEBUT_FONCTION et FIN_FONCTION.");
+      if (!m[1].trim()) err(n, "Que faut-il renvoyer ? Exemple : RENVOYER x");
+      js.push("await __s("+n+"); return "+tx(m[1], n, vars)+";"); last = "RENVOYER"; continue;
+    }
+    // APPELER_FONCTION nom(x), or simply nom(x), for a function that only displays (no RENVOYER)
+    const isAppel = /^APPELER(_FONCTION)?\s/i.test(s);
+    if ((m = s.match(CALL)) && (UF[m[1]] !== undefined || isAppel)) {
+      const name = m[1];
+      if (UF[name] === undefined) {
+        const near = Object.keys(UF).find(u => u.toLowerCase() === name.toLowerCase());
+        err(n, near ? "La fonction "+name+" n'existe pas. Voulais-tu écrire "+near+" ? Les majuscules comptent." : "La fonction "+name+" n'existe pas. Écris-la d'abord dans FONCTIONS_UTILISEES : FONCTION "+name+"(…).");
+      }
+      const args = m[2].trim() ? splitArgs(m[2]).map(x => tx(x, n, vars)) : [];
+      if (args.length !== UF[name]) err(n, "La fonction "+name+" attend "+nParams(UF[name])+", mais en reçoit "+args.length+".");
+      js.push("await __s("+n+"); await __U."+name+"("+args.join(", ")+");"); last = "APPELER"; continue;
+    }
+    if (isAppel) err(n, "Syntaxe attendue : APPELER_FONCTION nom(x)");
     if (/^[^"']*[^=!<>]=[^=]/.test(s)) err(n, "Pour donner une valeur à une variable, écris par exemple : x PREND_LA_VALEUR 3");
     err(n, "Instruction non reconnue : « "+s+" ».");
   }
-  if (phase < 2) throw new CErr(lastNonEmpty, "Il manque la ligne DEBUT_ALGORITHME.");
-  if (phase < 3) {
-    if (stack.length) { const t = stack[stack.length-1]; throw new CErr(t.line, "Le bloc "+t.kind+" ouvert ici n'est pas fermé : il manque "+FIN[t.kind]+", puis FIN_ALGORITHME."); }
-    throw new CErr(lastNonEmpty, "Il manque la ligne FIN_ALGORITHME à la fin.");
+  if (stack.length) {
+    const t = stack[stack.length-1], close = fn ? "FIN_FONCTION" : "FIN_ALGORITHME";
+    if (endN) err(endN, "Le bloc "+t.kind+" ouvert ligne "+t.line+" n'est pas fermé : il manque "+FIN[t.kind]+" avant "+close+".");
+    err(t.line, "Le bloc "+t.kind+" ouvert ici n'est pas fermé : il manque "+FIN[t.kind]+", puis "+close+".");
   }
-  const body = '"use strict"; return (async () => {\n' + js.join("\n") + "\n})();";
-  let fn;
-  try { fn = new Function("V","__s","__ln","__set","__setEl","__lire","__aff","__tick","__c","__num","__idx","__F", body); }
-  catch(e) { throw new CErr(0, "L'algorithme n'a pas pu être préparé ("+e.message+")."); }
-  return {fn, vars, order};
+  return js;
 }
 
 /* ---------- Formatting ---------- */
@@ -443,8 +545,8 @@ async function execute(step){
   const st = {stop:false, step, ticks:0, line:0, shown:0, resolveStep:null, rejectStep:null, cancelRead:null};
   run = st;
   const types = prog.vars, store = Object.create(null), lists = Object.create(null);
-  function makeList(name){
-    const raw = Object.create(null); lists[name] = raw;
+  function makeList(name, into){
+    const raw = Object.create(null); (into || lists)[name] = raw;
     return new Proxy(raw, {get(t,k){
       if (typeof k === "symbol") return undefined;
       if (k === "__raw") return t;
@@ -470,17 +572,21 @@ async function execute(step){
     if (!Number.isFinite(v)) throw new RunErr("Le calcul pour "+label+" donne l'infini : y a-t-il une division par zéro ?");
     return v;
   }
-  const __set = (name, v) => {
-    const ty = types[name];
-    if (ty === "NOMBRE") v = checkNum(v, name);
-    else if (ty === "CHAINE") {
-      if (typeof v === "boolean") v = v ? "VRAI" : "FAUX";
-      else if (typeof v === "number") v = fmt(v);
-      else if (v && typeof v === "object") throw new RunErr(name+" est une CHAINE : on ne peut pas y ranger une liste.");
-      v = String(v);
+  function coerce(ty, v, name){
+    if (ty === "NOMBRE") return checkNum(v, name);
+    if (ty === "CHAINE") {
+      if (typeof v === "boolean") return v ? "VRAI" : "FAUX";
+      if (typeof v === "number") return fmt(v);
+      if (v && typeof v === "object") throw new RunErr(name+" est une CHAINE : on ne peut pas y ranger une liste.");
+      return String(v);
     }
-    store[name] = v;
-  };
+    if (ty === "PARAM") {                              // a function parameter takes a number or a text
+      if (v && typeof v === "object") throw new RunErr("On ne peut pas passer une liste en paramètre ("+name+"). La fonction peut utiliser la liste directement par son nom.");
+      return typeof v === "string" ? v : checkNum(v, name);
+    }
+    return v;
+  }
+  const __set = (name, v) => { store[name] = coerce(types[name], v, name); };
   const __idx = v => { v = checkNum(v, "le rang"); if (!Number.isInteger(v)) throw new RunErr("Le rang d'un élément de liste doit être un nombre entier (ici "+fmt(v)+")."); return v; };
   const __setEl = (name, k, v) => { lists[name][k] = checkNum(v, name+"["+k+"]"); };
   const __num = v => checkNum(v, "la borne de la boucle POUR");
@@ -535,6 +641,29 @@ async function execute(step){
     });
     st.cancelRead = () => rej(new StopErr());
   });
+  // One call of a student's function: its parameters and VARIABLES_FONCTION are its own; any other name is a variable of the main algorithm.
+  let depth = 0;
+  const __frame = (fname, params, ltypes, args) => {
+    if (++depth > 1000) { depth--; throw new RunErr("Plus de 1000 appels de fonction imbriqués : la fonction "+fname+" s'appelle sans doute elle-même sans fin."); }
+    const lstore = Object.create(null), llists = Object.create(null);
+    for (const k in ltypes) lstore[k] = ltypes[k] === "LISTE" ? makeList(k, llists) : undefined;
+    params.forEach((p, i) => { lstore[p] = coerce("PARAM", args[i], p); });
+    return {
+      V: new Proxy(lstore, {get(t,k){
+        if (typeof k !== "string" || !ltypes[k]) return V[k];
+        if (t[k] === undefined) throw new RunErr("La variable "+k+" de la fonction "+fname+" n'a pas encore de valeur : utilise LIRE ou PREND_LA_VALEUR avant de t'en servir.");
+        return t[k];
+      }}),
+      __set: (name, v) => { if (ltypes[name]) lstore[name] = coerce(ltypes[name], v, name); else __set(name, v); },
+      __setEl: (name, k, v) => { if (ltypes[name]) llists[name][k] = checkNum(v, name+"["+k+"]"); else __setEl(name, k, v); },
+      __end: () => { depth--; }
+    };
+  };
+  const __E = async (f, name, ...args) => {
+    const ln = st.line, v = await f(...args);
+    if (v === undefined) throw Object.assign(new RunErr("La fonction "+name+" ne renvoie aucune valeur (pas de RENVOYER) : on ne peut pas l'utiliser dans un calcul. Appelle-la avec APPELER_FONCTION "+name+"(…)."), {line: ln});
+    return v;
+  };
   const __F = {
     alea: (a, b) => { a = checkNum(a,"ALGOBOX_ALEA_ENT"); b = checkNum(b,"ALGOBOX_ALEA_ENT"); return a + Math.floor(Math.random()*(b - a + 1)); },
     somme: (L, a, b) => { let s = 0; for (let k=a;k<=b;k++) s += L[k]; return s; },
@@ -547,7 +676,7 @@ async function execute(step){
   setEtat(step ? "Pas à pas" : "En cours", "run");
   updateVars();
   try {
-    await prog.fn(V, __s, __ln, __set, __setEl, __lire, __aff, __tick, __c, __num, __idx, __F);
+    await prog.fn(V, __s, __ln, __set, __setEl, __lire, __aff, __tick, __c, __num, __idx, __F, __frame, __E);
     outLine("Algorithme terminé.", "o-sys");
     setEtat("Terminé", "ok");
   } catch(e) {
@@ -625,7 +754,8 @@ const SNIP = {
   si:{lines:["SI (x > 0) ALORS","  DEBUT_SI","  ","  FIN_SI"], sel:[3,10]},
   sisinon:{lines:["SI (x > 0) ALORS","  DEBUT_SI","  ","  FIN_SI","SINON","  DEBUT_SINON","  ","  FIN_SINON"], sel:[3,10]},
   pour:{lines:["POUR i ALLANT_DE 1 A 10","  DEBUT_POUR","  ","  FIN_POUR"], sel:[5,6]},
-  tq:{lines:["TANT_QUE (x < 100) FAIRE","  DEBUT_TANT_QUE","  ","  FIN_TANT_QUE"], sel:[9,18]}
+  tq:{lines:["TANT_QUE (x < 100) FAIRE","  DEBUT_TANT_QUE","  ","  FIN_TANT_QUE"], sel:[9,18]},
+  fonction:{lines:["FONCTION nom(x)","VARIABLES_FONCTION","DEBUT_FONCTION","  RENVOYER x","FIN_FONCTION"], sel:[9,12]}
 };
 function insertSnippet(key){
   if (run) return;
@@ -633,6 +763,15 @@ function insertSnippet(key){
   const debut = lines.findIndex(l => l.trim().toUpperCase() === "DEBUT_ALGORITHME");
   const lineStart = i => lines.slice(0, i).reduce((a, l) => a + l.length + 1, 0);
   let from, to, ind, lead;
+  if (key === "fonction") {                           // functions go before VARIABLES, under FONCTIONS_UTILISEES
+    let at = lines.findIndex(l => l.trim().toUpperCase() === "VARIABLES");
+    if (at < 0) at = debut >= 0 ? debut : 0;
+    const head = lines.some(l => l.trim().toUpperCase() === "FONCTIONS_UTILISEES") ? "" : "FONCTIONS_UTILISEES\n";
+    from = lineStart(at);
+    src.focus(); src.setSelectionRange(from, from); ins(head + sn.lines.join("\n") + "\n\n");
+    src.setSelectionRange(from + head.length + sn.sel[0], from + head.length + sn.sel[1]);
+    return;
+  }
   if (key === "var") {
     const at = debut >= 0 ? lineStart(debut) : 0;
     from = to = at; ind = "  "; lead = "";
@@ -643,7 +782,7 @@ function insertSnippet(key){
   }
   const p = src.selectionStart;
   let li = v.slice(0, p).split("\n").length - 1;
-  if (debut >= 0 && li <= debut) li = debut;           // instructions go after DEBUT_ALGORITHME
+  if (debut >= 0 && li <= debut && scanSource(lines, li).zone !== "fbody") li = debut;   // instructions go after DEBUT_ALGORITHME, or inside a function
   let line = lines[li] || "", tr = line.trim().toUpperCase();
   ind = (line.match(/^\s*/) || [""])[0];
   if (tr === "FIN_ALGORITHME") {
@@ -664,12 +803,183 @@ function insertSnippet(key){
   src.setSelectionRange(s0 + sn.sel[0], s0 + sn.sel[1]);
 }
 
+/* ---------- Suggestions while typing ---------- */
+// Popup under the caret: declared variables, the keywords that fit where the caret is, and whole blocks (SI, POUR, TANT_QUE).
+const sugBox = document.createElement("div"), sugList = document.createElement("ul");
+sugBox.className = "sug"; sugBox.hidden = true;
+sugList.id = "sug-list"; sugList.setAttribute("role", "listbox"); sugList.setAttribute("aria-label", "Suggestions");
+sugBox.innerHTML = '<p class="sug-hint"><kbd>Entrée</kbd> ou <kbd>Tab</kbd> pour choisir · <kbd>Échap</kbd> pour fermer</p>';
+sugBox.prepend(sugList); document.body.appendChild(sugBox);
+src.setAttribute("aria-autocomplete", "list"); src.setAttribute("aria-controls", "sug-list");
+
+const IDC = /[A-Za-z0-9À-ÖØ-öø-ÿ_]/;
+const kw = (text, kind, detail, add) => ({label:text, match:text, text:text + (add || ""), kind, detail});
+const blk = (label, match, snip, kind) => ({label, match, snip, kind, detail:"bloc"});
+const SUG_START = [
+  blk("SI … ALORS", "SI", "si", "test"), blk("SI … SINON", "SI", "sisinon", "test"),
+  blk("POUR … ALLANT_DE", "POUR", "pour", "loop"), blk("TANT_QUE … FAIRE", "TANT_QUE", "tq", "loop"),
+  kw("LIRE", "instr", "lire une valeur", " "), kw("AFFICHER", "instr", "afficher", " "), kw("AFFICHERCALCUL", "instr", "afficher un calcul", " "),
+  kw("DEBUT_SI", "test", "début du SI"), kw("FIN_SI", "test", "fin du SI"), kw("SINON", "test", "sinon"),
+  kw("DEBUT_SINON", "test", "début du SINON"), kw("FIN_SINON", "test", "fin du SINON"),
+  kw("DEBUT_POUR", "loop", "début du POUR"), kw("FIN_POUR", "loop", "fin du POUR"),
+  kw("DEBUT_TANT_QUE", "loop", "début du TANT_QUE"), kw("FIN_TANT_QUE", "loop", "fin du TANT_QUE"),
+  kw("FIN_ALGORITHME", "struct", "fin de l'algorithme"), kw("APPELER_FONCTION", "instr", "fonction sans RENVOYER", " ")
+];
+const SUG_FBODY_START = [kw("RENVOYER", "instr", "résultat de la fonction", " "), ...SUG_START.filter(it => it.match !== "FIN_ALGORITHME"), kw("FIN_FONCTION", "struct", "fin de la fonction")];
+const SUG_MID = [
+  kw("PREND_LA_VALEUR", "instr", "affectation", " "), kw("EST_DU_TYPE", "struct", "déclaration", " "),
+  kw("ALORS", "test", "après la condition"), kw("FAIRE", "loop", "après la condition"),
+  kw("ALLANT_DE", "loop", "début du compteur", " "),
+  kw("ET", "logic", "les deux conditions", " "), kw("OU", "logic", "l'une des conditions", " "), kw("NON", "logic", "contraire", " "),
+  kw("VRAI", "logic", "booléen"), kw("FAUX", "logic", "booléen"),
+  ...Object.keys(FUNCS).map(f => ({label:f + "( )", match:f, text:f + "()", back:1, kind:"fn", detail:"fonction"}))
+];
+const SUG_TYPES = ["NOMBRE", "CHAINE", "LISTE"].map(t => kw(t, "struct", "type"));
+const SUG_DECL_START = [
+  blk("FONCTION … FIN_FONCTION", "FONCTION", "fonction", "struct"), kw("FONCTIONS_UTILISEES", "struct", "avant les fonctions"),
+  kw("VARIABLES_FONCTION", "struct", "variables de la fonction"), kw("DEBUT_FONCTION", "struct", "début de la fonction"),
+  kw("FIN_FONCTION", "struct", "fin de la fonction"), kw("VARIABLES", "struct", "variables de l'algorithme"),
+  kw("DEBUT_ALGORITHME", "struct", "début des instructions")
+];
+
+let sugItems = [], sugIdx = 0, sugFrom = 0, sugAccepting = false;
+// Where line li is ("top", "fdecl", "fbody", "decl" or "body"), the variables visible there and the student's functions.
+function scanSource(lines, li){
+  const glob = [], funcs = [], sv = (name, detail) => ({label:name, match:name, text:name, kind:"var", detail});
+  let sect = "top", zone = "top", cur = null, here = null;
+  lines.forEach((l, i) => {
+    if (i === li) { zone = sect; here = cur; }
+    const s = l.trim(), U = s.toUpperCase();
+    let m = s.match(FN_HEAD);
+    if (m) {
+      const ps = m[2].split(",").map(p => p.trim()).filter(p => IDRE.test(p));
+      cur = {name:m[1], vars:ps.map(p => sv(p, "paramètre"))}; funcs.push(cur); sect = "fdecl"; return;
+    }
+    if (U === "DEBUT_FONCTION") { sect = "fbody"; return; }
+    if (U === "FIN_FONCTION") { cur = null; sect = "top"; return; }
+    if (U === "VARIABLES") { cur = null; sect = "decl"; return; }
+    if (U === "DEBUT_ALGORITHME") { cur = null; sect = "body"; return; }
+    if (sect !== "fdecl" && sect !== "decl") return;
+    m = s.match(new RegExp("^(" + ID + ")\\s+EST_DU_TYPE\\s+(\\w+)", "i"));
+    if (m) (sect === "fdecl" && cur ? cur.vars : glob).push(sv(m[1], "variable · " + m[2].toUpperCase()));
+  });
+  if (li >= lines.length) { zone = sect; here = cur; }
+  const vars = [];
+  for (const v of [...(here ? here.vars : []), ...glob]) if (!vars.some(w => w.match === v.match)) vars.push(v);
+  return {zone, vars, funcs:funcs.map(f => ({label:f.name + "( )", match:f.name, text:f.name + "()", back:1, kind:"fn", detail:"ta fonction"}))};
+}
+function hideSug(){
+  if (sugBox.hidden) return;
+  sugBox.hidden = true; sugItems = []; src.removeAttribute("aria-activedescendant");
+}
+function showSug(force){
+  if (src.readOnly || document.activeElement !== src || src.selectionStart !== src.selectionEnd) return hideSug();
+  const v = src.value, p = src.selectionStart;
+  if (p < v.length && IDC.test(v[p])) return hideSug();           // caret in the middle of a word
+  const ls = v.lastIndexOf("\n", p - 1) + 1, before = v.slice(ls, p);
+  const bare = before.replace(/"[^"]*"|'[^']*'/g, "");
+  if (/["']|\/\//.test(bare)) return hideSug();                   // inside a string or a comment
+  const word = (before.match(/[A-Za-z0-9À-ÖØ-öø-ÿ_]*$/) || [""])[0];
+  if (/^\d/.test(word)) return hideSug();
+  const head = before.slice(0, before.length - word.length);
+  const lines = v.split("\n"), li = v.slice(0, p).split("\n").length - 1;
+  const sc = scanSource(lines, li), atStart = head.trim() === "";
+  let pool;
+  if (/\bEST_DU_TYPE\s+$/i.test(head)) pool = SUG_TYPES;
+  else if (sc.zone === "body" || sc.zone === "fbody") pool = atStart ? [...sc.vars, ...(sc.zone === "fbody" ? SUG_FBODY_START : SUG_START), ...sc.funcs] : [...sc.vars, ...sc.funcs, ...SUG_MID];
+  else pool = atStart ? SUG_DECL_START : (/^\s*FONCTION\b/i.test(head) || /\bEST_DU_TYPE\b/i.test(head) ? [] : [SUG_MID[1]]);
+  if (!word && !force && pool !== SUG_TYPES) return hideSug();
+  const w = word.toUpperCase();
+  const items = pool.filter(it => it.match.toUpperCase().startsWith(w)).slice(0, 8);
+  if (!items.length || (items.length === 1 && !items[0].snip && items[0].text.trim() === word)) return hideSug();
+  sugItems = items; sugIdx = 0; sugFrom = p - word.length;
+  sugList.innerHTML = items.map((it, i) =>
+    '<li role="option" id="sug-' + i + '" class="k-' + it.kind + '" data-i="' + i + '"><span class="sug-l"><b>' + esc(it.label.slice(0, word.length)) + '</b>' + esc(it.label.slice(word.length)) +
+    '</span><span class="sug-d">' + esc(it.detail) + '</span></li>').join("");
+  sugBox.hidden = false;
+  markSug();
+  sugPos = [li, before.length - word.length];
+  placeSug();
+}
+let measureCtx = null, sugPos = [0, 0];
+function placeSug(){
+  if (sugBox.hidden) return;
+  const [line, col] = sugPos;
+  const cs = getComputedStyle(src), r = src.getBoundingClientRect();
+  measureCtx = measureCtx || document.createElement("canvas").getContext("2d");
+  measureCtx.font = cs.fontSize + " " + cs.fontFamily;
+  const cw = measureCtx.measureText("0000000000").width / 10;
+  const caretTop = r.top + PT + line * LH - src.scrollTop;
+  if (caretTop < r.top || caretTop + LH > r.bottom) return hideSug();   // caret line scrolled out of view
+  const w = sugBox.offsetWidth, h = sugBox.offsetHeight;
+  let x = r.left + parseFloat(cs.paddingLeft) + col * cw - src.scrollLeft - 6;
+  x = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+  let y = caretTop + LH + 2;
+  if (y + h > window.innerHeight - 8 && caretTop - h - 2 > 8) y = caretTop - h - 2;
+  sugBox.style.left = x + "px"; sugBox.style.top = y + "px";
+}
+function markSug(){
+  sugList.querySelectorAll("li").forEach((el, i) => el.setAttribute("aria-selected", i === sugIdx ? "true" : "false"));
+  const cur = $("sug-" + sugIdx);
+  if (cur) { src.setAttribute("aria-activedescendant", cur.id); cur.scrollIntoView({block:"nearest"}); }
+}
+function acceptSug(i){
+  const it = sugItems[i], p = src.selectionStart;
+  if (!it) return;
+  hideSug();
+  sugAccepting = true;
+  src.focus(); src.setSelectionRange(sugFrom, p);
+  if (it.snip) {
+    const sn = SNIP[it.snip], ls = src.value.lastIndexOf("\n", sugFrom - 1) + 1;
+    const ind = (src.value.slice(ls, sugFrom).match(/^\s*/) || [""])[0];
+    ins(sn.lines.map((l, k) => k ? ind + l : l).join("\n"));
+    src.setSelectionRange(sugFrom + sn.sel[0], sugFrom + sn.sel[1]);
+  } else {
+    ins(it.text);
+    if (it.back) { const q = src.selectionStart - it.back; src.setSelectionRange(q, q); }
+  }
+  sugAccepting = false;
+}
+// Returns true when the key was used by the popup.
+function sugKey(e){
+  if (e.key === " " && e.ctrlKey) { e.preventDefault(); showSug(true); return true; }
+  if (sugBox.hidden) return false;
+  const n = sugItems.length;
+  if (e.key === "ArrowDown") { sugIdx = (sugIdx + 1) % n; markSug(); }
+  else if (e.key === "ArrowUp") { sugIdx = (sugIdx - 1 + n) % n; markSug(); }
+  else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) acceptSug(sugIdx);
+  else if (e.key === "Escape") hideSug();
+  else { if (/^(ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(e.key)) hideSug(); return false; }
+  e.preventDefault();
+  return true;
+}
+src.addEventListener("input", e => {
+  if (sugAccepting) return;
+  if (e.inputType === "insertText" || (e.inputType === "deleteContentBackward" && !sugBox.hidden)) showSug(false);
+  else hideSug();
+});
+src.addEventListener("blur", hideSug);
+src.addEventListener("mousedown", hideSug);
+src.addEventListener("scroll", placeSug);
+window.addEventListener("scroll", placeSug, {passive:true});
+window.addEventListener("resize", hideSug);
+sugList.addEventListener("mousedown", e => {
+  e.preventDefault();                                              // keep the focus in the editor
+  const li = e.target.closest("li");
+  if (li) acceptSug(+li.dataset.i);
+});
+sugList.addEventListener("mousemove", e => {
+  const li = e.target.closest("li");
+  if (li && +li.dataset.i !== sugIdx) { sugIdx = +li.dataset.i; markSug(); }
+});
+
 /* ---------- Wiring ---------- */
 src.addEventListener("input", onInput);
 src.addEventListener("scroll", syncScroll);
 src.addEventListener("keydown", e => {
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); if (!run) execute(false); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); hideSug(); if (!run) execute(false); return; }
   if (src.readOnly) return;
+  if (sugKey(e)) return;
   if (e.key === "Tab" && !e.shiftKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); ins("  "); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
     const p = src.selectionStart, ls = src.value.lastIndexOf("\n", p - 1) + 1, cur = src.value.slice(ls, p);

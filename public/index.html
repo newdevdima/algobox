@@ -39,6 +39,7 @@
         <button class="chip c-test" data-snip="sisinon" type="button">SI … SINON</button>
         <button class="chip c-loop" data-snip="pour" type="button">POUR</button>
         <button class="chip c-loop" data-snip="tq" type="button">TANT_QUE</button>
+        <button class="chip c-struct" data-snip="fonction" type="button">FONCTION</button>
       </div>
       <div class="editor">
         <div class="gutter" aria-hidden="true"><div class="gutter-inner" id="gutter"></div></div>
@@ -110,6 +111,18 @@ floor(x)  round(x)   n % 2
 random()  ALGOBOX_ALEA_ENT(1,6)</pre><div class="note">% donne le reste de la division. ALGOBOX_ALEA_ENT(a,b) donne un entier au hasard entre a et b. Math.PI vaut π.</div></div>
       <div class="memo-row"><div class="what">Listes</div><pre class="mini">L[1] PREND_LA_VALEUR 5
 AFFICHER L[1]</pre><div class="note">Les éléments sont repérés par leur rang entre crochets, en général à partir de 1.</div></div>
+      <div class="memo-row"><div class="what">Fonction</div><pre class="mini">FONCTIONS_UTILISEES
+FONCTION carre(x)
+VARIABLES_FONCTION
+  // variables de la fonction
+DEBUT_FONCTION
+  RENVOYER x*x
+FIN_FONCTION
+VARIABLES
+  …
+DEBUT_ALGORITHME
+  r PREND_LA_VALEUR carre(a)
+  APPELER_FONCTION afficherTout(a)</pre><div class="note">Les fonctions s'écrivent avant VARIABLES. RENVOYER donne le résultat et quitte la fonction. Une fonction sans RENVOYER (qui ne fait qu'afficher) s'appelle avec APPELER_FONCTION. Les paramètres sont des copies : les modifier ne change pas les variables de l'algorithme principal. Une fonction peut utiliser directement une LISTE déclarée dans VARIABLES.</div></div>
       <div class="memo-row"><div class="what">Commentaires</div><pre class="mini">// ce texte est ignoré</pre><div class="note">Pratique pour expliquer son algorithme.</div></div>
     </div>
   </section>

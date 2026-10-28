@@ -86,6 +86,20 @@ select{font-family:var(--f-body);font-size:14.5px;padding:8px 10px;border:1px so
 .code textarea{z-index:2;width:100%;height:100%;resize:none;outline:none;overflow:auto;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--ink)}
 .code textarea::selection{background:rgba(41,68,196,.25)}
 .band{position:absolute;left:0;right:0;top:0;height:24px;z-index:0;pointer-events:none}
+
+/* Suggestions popup under the caret */
+.sug{position:fixed;z-index:50;min-width:220px;max-width:min(360px,calc(100vw - 16px));background:var(--surface);border:1px solid var(--line);border-radius:6px;
+  box-shadow:0 8px 24px rgba(13,18,32,.18);overflow:hidden}
+.sug ul{list-style:none;margin:0;padding:4px;max-height:232px;overflow:auto}
+.sug li{display:flex;align-items:baseline;justify-content:space-between;gap:16px;padding:4px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;
+  font-family:var(--f-code);font-size:14px;color:var(--ink)}
+.sug li[aria-selected="true"]{background:var(--cur-bg)}
+.sug li b{font-weight:700;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.sug .sug-d{font-family:var(--f-body);font-size:12px;color:var(--muted)}
+.sug .k-struct .sug-l{color:var(--struct)} .sug .k-test .sug-l{color:var(--test)} .sug .k-loop .sug-l{color:var(--loop)}
+.sug .k-instr .sug-l{color:var(--instr)} .sug .k-logic .sug-l{color:var(--test)} .sug .k-var .sug-l{font-weight:600}
+.sug-hint{margin:0;padding:5px 10px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);font-family:var(--f-body)}
+.sug-hint kbd{font-size:10.5px}
 .band-cur{background:var(--cur-bg)} .band-err{background:var(--err-band)}
 .t-struct{color:var(--struct);font-weight:600}.t-instr{color:var(--instr);font-weight:600}.t-test{color:var(--test);font-weight:600}
 .t-loop{color:var(--loop);font-weight:600}.t-logic{color:var(--test)}.t-str{color:var(--str)}.t-com{color:var(--com);font-style:italic}.t-num{color:var(--ink)}
